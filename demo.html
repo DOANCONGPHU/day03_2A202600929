@@ -1,0 +1,398 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI Music Agent Demo</title>
+  <style>
+    :root {
+      --bg: #f6f7f9;
+      --surface: #ffffff;
+      --ink: #1f2933;
+      --muted: #657283;
+      --line: #d9dee7;
+      --accent: #0f766e;
+      --accent-dark: #115e59;
+      --soft: #eef7f5;
+      --danger: #a33a3a;
+      --code: #202634;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: Arial, Helvetica, sans-serif;
+      letter-spacing: 0;
+    }
+
+    header {
+      border-bottom: 1px solid var(--line);
+      background: var(--surface);
+    }
+
+    .topbar {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 18px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 22px;
+      line-height: 1.2;
+      font-weight: 700;
+    }
+
+    .status {
+      padding: 7px 10px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      color: var(--muted);
+      background: #fbfcfd;
+      font-size: 13px;
+      white-space: nowrap;
+    }
+
+    main {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 18px 20px 28px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 16px;
+    }
+
+    .panel {
+      min-width: 0;
+      min-height: 680px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .panel-head {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .panel-title {
+      margin: 0;
+      font-size: 16px;
+      font-weight: 700;
+    }
+
+    .badge {
+      border: 1px solid var(--line);
+      color: var(--muted);
+      padding: 5px 8px;
+      border-radius: 999px;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .messages {
+      flex: 1;
+      padding: 16px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      background: #fbfcfd;
+    }
+
+    .message {
+      max-width: 92%;
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      white-space: pre-wrap;
+      line-height: 1.45;
+      font-size: 14px;
+    }
+
+    .user {
+      align-self: flex-end;
+      background: var(--soft);
+      border-color: #bddbd6;
+    }
+
+    .assistant {
+      align-self: flex-start;
+      background: var(--surface);
+    }
+
+    .error {
+      align-self: flex-start;
+      color: var(--danger);
+      background: #fff7f7;
+      border-color: #efc6c6;
+    }
+
+    .composer {
+      padding: 12px;
+      border-top: 1px solid var(--line);
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 10px;
+      background: var(--surface);
+    }
+
+    textarea {
+      width: 100%;
+      min-height: 72px;
+      max-height: 160px;
+      resize: vertical;
+      padding: 10px 11px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      font: inherit;
+      line-height: 1.4;
+      color: var(--ink);
+      background: #ffffff;
+    }
+
+    button {
+      align-self: end;
+      min-width: 92px;
+      height: 40px;
+      border: 0;
+      border-radius: 6px;
+      background: var(--accent);
+      color: #ffffff;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background: var(--accent-dark);
+    }
+
+    button:disabled {
+      cursor: wait;
+      opacity: 0.68;
+    }
+
+    .artifact {
+      width: 100%;
+      margin-top: 10px;
+      padding: 10px;
+      border: 1px solid #bddbd6;
+      border-radius: 6px;
+      background: var(--soft);
+      display: grid;
+      gap: 8px;
+    }
+
+    .artifact a {
+      color: var(--accent-dark);
+      font-weight: 700;
+      text-decoration: none;
+      overflow-wrap: anywhere;
+    }
+
+    audio {
+      width: 100%;
+    }
+
+    details {
+      margin-top: 10px;
+      width: 100%;
+    }
+
+    summary {
+      cursor: pointer;
+      color: var(--muted);
+      font-size: 13px;
+      user-select: none;
+    }
+
+    pre {
+      margin: 8px 0 0;
+      padding: 10px;
+      max-height: 260px;
+      overflow: auto;
+      border-radius: 6px;
+      background: var(--code);
+      color: #edf2f7;
+      font-size: 12px;
+      line-height: 1.45;
+      white-space: pre-wrap;
+    }
+
+    @media (max-width: 860px) {
+      .topbar {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .grid {
+        grid-template-columns: 1fr;
+      }
+
+      .panel {
+        min-height: 560px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="topbar">
+      <h1>AI Music Demo</h1>
+      <div class="status" id="serverStatus">Checking server</div>
+    </div>
+  </header>
+
+  <main>
+    <div class="grid">
+      <section class="panel">
+        <div class="panel-head">
+          <h2 class="panel-title">Baseline Chatbot</h2>
+          <span class="badge">Text only</span>
+        </div>
+        <div class="messages" id="chatbotMessages"></div>
+        <form class="composer" data-target="chatbot">
+          <textarea name="message" placeholder="Nhap yeu cau am nhac..."></textarea>
+          <button type="submit">Send</button>
+        </form>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2 class="panel-title">ReAct Music Agent</h2>
+          <span class="badge">WAV output</span>
+        </div>
+        <div class="messages" id="agentMessages"></div>
+        <form class="composer" data-target="agent">
+          <textarea name="message" placeholder="Vi du: Tao mot doan nhac calm key C dai 2 bars va xuat file wav"></textarea>
+          <button type="submit">Run</button>
+        </form>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    const state = {
+      chatbot: document.getElementById("chatbotMessages"),
+      agent: document.getElementById("agentMessages")
+    };
+
+    function addMessage(target, role, text) {
+      const bubble = document.createElement("div");
+      bubble.className = `message ${role}`;
+      bubble.textContent = text;
+      state[target].appendChild(bubble);
+      state[target].scrollTop = state[target].scrollHeight;
+      return bubble;
+    }
+
+    function addAgentArtifact(container, data) {
+      if (!data.wav_url) return;
+
+      const box = document.createElement("div");
+      box.className = "artifact";
+
+      const link = document.createElement("a");
+      link.href = data.wav_url;
+      link.download = "";
+      link.textContent = data.wav_path || data.wav_url;
+
+      const audio = document.createElement("audio");
+      audio.controls = true;
+      audio.src = data.wav_url;
+
+      box.appendChild(link);
+      box.appendChild(audio);
+      container.appendChild(box);
+    }
+
+    function addTrace(container, history) {
+      if (!history || !history.length) return;
+
+      const details = document.createElement("details");
+      const summary = document.createElement("summary");
+      summary.textContent = "Trace";
+
+      const pre = document.createElement("pre");
+      pre.textContent = JSON.stringify(history, null, 2);
+
+      details.appendChild(summary);
+      details.appendChild(pre);
+      container.appendChild(details);
+    }
+
+    async function sendMessage(target, message, form) {
+      addMessage(target, "user", message);
+      const pending = addMessage(target, "assistant", "Dang xu ly...");
+      const button = form.querySelector("button");
+      button.disabled = true;
+
+      try {
+        const response = await fetch(`/api/${target}`, {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({message})
+        });
+        const data = await response.json();
+
+        if (!response.ok || data.error) {
+          pending.className = "message error";
+          pending.textContent = data.error || "Request failed.";
+          return;
+        }
+
+        pending.textContent = data.response || "";
+        if (target === "agent") {
+          addAgentArtifact(pending, data);
+          addTrace(pending, data.history);
+        }
+      } catch (error) {
+        pending.className = "message error";
+        pending.textContent = error.message;
+      } finally {
+        button.disabled = false;
+      }
+    }
+
+    document.querySelectorAll("form.composer").forEach((form) => {
+      form.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const textarea = form.querySelector("textarea");
+        const message = textarea.value.trim();
+        if (!message) return;
+        textarea.value = "";
+        sendMessage(form.dataset.target, message, form);
+      });
+    });
+
+    fetch("/api/health")
+      .then((response) => response.json())
+      .then(() => {
+        document.getElementById("serverStatus").textContent = "Server ready";
+      })
+      .catch(() => {
+        document.getElementById("serverStatus").textContent = "Server offline";
+      });
+  </script>
+</body>
+</html>

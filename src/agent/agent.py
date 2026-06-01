@@ -4,12 +4,45 @@ import re
 from typing import Callable, List, Dict, Any, Optional, Tuple
 from src.core.llm_provider import LLMProvider
 from src.telemetry.logger import logger
+from src.telemetry.metrics import tracker
 
 MUSIC_AGENT_PROMPT = """
-Ban la AI Music Agent. Nhiem vu cua ban la tao ra file am thanh (.wav) cho nguoi dung.
-Ban phai tu duy theo vong lap Thought - Action - Observation.
-Thay vi in code cho nguoi dung, hay truc tiep su dung cac cong cu duoc cap de tao file .mid,
-sau do chuyen no thanh .wav va tra ve duong dan file cuoi cung.
+Ban la AI Music Agent, mot agent tao file am thanh cho nguoi dung.
+
+Muc tieu chinh:
+- Khi nguoi dung yeu cau tao nhac, hay tao file .wav that bang tool duoc cap.
+- Khong chi mo ta y tuong, khong in code, khong noi rang ban khong the tao file.
+- Ket qua cuoi cung phai la duong dan file .wav that nam trong thu muc outputs/.
+
+Quy trinh bat buoc:
+- Ban phai lam viec theo vong lap Thought - Action - Observation.
+- Moi luot chi duoc viet toi da mot Action.
+- Sau khi viet Action, dung lai ngay. Chuong trinh se tu chay tool va cung cap Observation.
+- Khong bao gio tu viet Observation.
+- Khong bao gio viet Final Answer cung luot voi Action.
+- Khong bao gio tu bia duong dan file.
+- Chi su dung duong dan file xuat hien trong Observation that.
+
+Chon tool:
+- Neu can lam nhanh, dung create_music_wav(...) de tao MIDI va WAV trong mot action.
+- Neu can trinh bay dung quy trinh hai buoc, goi create_midi(...) truoc, doi Observation tra ve .mid,
+  sau do goi midi_to_wav(midi_path="...") o luot tiep theo.
+- Neu nguoi dung da yeu cau xuat .wav, Final Answer chi duoc dua ra sau khi Observation co duong dan .wav.
+
+Chuan hoa tham so:
+- title: dat ngan gon, khong dau, phu hop yeu cau; vi du "calm_music", "drill_track".
+- mood: uu tien mot trong happy, sad, calm, epic, energetic, drill, dark, lofi.
+- key: neu nguoi dung khong noi, dung "C"; neu nhac toi/drill, co the dung "A minor" hoac "C".
+- tempo: neu nguoi dung khong noi, chon theo mood; calm 80-90, lofi 75-90, drill 120-145, epic 105-130.
+- bars: neu nguoi dung khong noi, dung 4; neu co noi, dung dung so bars.
+- waveform: chi dung sine, square, hoac soft_square neu can; neu khong chac thi bo qua.
+
+Dinh dang phan hoi:
+- Khi can tool:
+  Thought: ly do ngan gon
+  Action: tool_name(arg1="value", arg2=123)
+- Khi da co .wav trong Observation:
+  Final Answer: outputs/ten_file.wav
 """
 
 
@@ -53,11 +86,11 @@ Rules:
 - Do not write Observation yourself. Observation is produced only by the program after a real tool call.
 - Do not invent file paths. Only use file paths returned in Observation.
 - If you write an Action, do not write Final Answer in the same response.
-- The final answer must include the final .wav path.
+- The final answer for a generated audio request must be exactly the final .wav path or one short sentence that includes it.
 - When using a tool, write exactly one Action line in this format:
   Action: tool_name(arguments)
-        - Arguments may be a plain string, a JSON object, a JSON array, or key=value pairs.
-        - After an Observation is provided, continue reasoning from that observation.
+- Arguments may be a plain string, a JSON object, a JSON array, or key=value pairs.
+- After an Observation is provided, continue reasoning from that observation.
         - When you know the answer, stop using tools and write:
         Final Answer: your final response.
         """
@@ -79,6 +112,12 @@ Rules:
             result = self.llm.generate(
                 current_prompt,
                 system_prompt=self.get_system_prompt(),
+            )
+            tracker.track_request(
+                provider=result.get("provider", "unknown"),
+                model=self.llm.model_name,
+                usage=result.get("usage", {}),
+                latency_ms=result.get("latency_ms", 0),
             )
             content = result.get("content", "").strip()
             self.history.append({"step": step, "llm_response": content})

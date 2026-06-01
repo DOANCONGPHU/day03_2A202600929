@@ -7,7 +7,7 @@ from typing import Dict, Any, Optional, Generator
 from src.core.llm_provider import LLMProvider
 
 class GeminiProvider(LLMProvider):
-    def __init__(self, model_name: str = "gemini-2.5-flash", api_key: Optional[str] = None):
+    def __init__(self, model_name: str = "gemini-2.0-flash-lite", api_key: Optional[str] = None):
         super().__init__(model_name, api_key)
         if not self.api_key:
             raise ValueError("GEMINI_API_KEY is required for GeminiProvider.")

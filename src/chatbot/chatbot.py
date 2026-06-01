@@ -2,6 +2,7 @@ from typing import Any, Dict, List, Optional
 
 from src.core.llm_provider import LLMProvider
 from src.telemetry.logger import logger
+from src.telemetry.metrics import tracker
 
 
 MUSIC_CHATBOT_PROMPT = """
@@ -38,6 +39,12 @@ class Chatbot:
         result = self.llm.generate(
             user_input,
             system_prompt=self.system_prompt,
+        )
+        tracker.track_request(
+            provider=result.get("provider", "unknown"),
+            model=self.llm.model_name,
+            usage=result.get("usage", {}),
+            latency_ms=result.get("latency_ms", 0),
         )
         content = result.get("content", "").strip()
         self.history.append({"input": user_input, "response": content})
