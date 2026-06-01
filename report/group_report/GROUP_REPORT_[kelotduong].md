@@ -1,90 +1,90 @@
-# Group Report: Lab 3 - Production-Grade Agentic System
+# Báo cáo Nhóm: Lab 3 - Hệ thống Agent ReAct tạo nhạc
 
-- **Team Name**: Ke lot duong
-- **Team Members**: Vu Quang Vinh, Hoang Duc Dung, Dinh Van Anh Khoi, Doan Cong Phu
-- **Deployment Date**: 2026-06-01
-
----
-
-## 1. Executive Summary
-
-Our project compares a text-only music chatbot with a ReAct-based AI Music Agent. The target task is not only to answer music questions, but also to create a real audio artifact: a `.wav` file saved in `outputs/`.
-
-- **Baseline result**: Chatbot handles music-theory and ideation prompts well, but cannot create files.
-- **Agent v1 result**: Agent could call music tools, but sometimes hallucinated observations or failed to stop.
-- **Agent v2 result**: Guardrails improved reliability by forcing real backend observations and preventing fake file paths.
-- **Main outcome**: ReAct is necessary for artifact generation because the LLM must act through tools, not just describe an answer.
+- **Tên nhóm**: Kẻ lót đường
+- **Thành viên**: Vũ Quang Vinh, Hoàng Đức Dũng, Đinh Văn Anh Khôi, Đoàn Công Phú
+- **Ngày triển khai**: 2026-06-01
 
 ---
 
-## 2. System Architecture & Tooling
+## 1. Tóm tắt thực thi
 
-### 2.1 ReAct Loop Implementation
+Dự án so sánh một chatbot âm nhạc chỉ trả lời bằng văn bản với một ReAct Agent có khả năng tạo file âm thanh thật. Mục tiêu không chỉ là trả lời câu hỏi về âm nhạc, mà còn tạo ra artifact `.wav` trong thư mục `outputs/`.
 
-The system uses a bounded ReAct loop with `max_steps=5`:
+- **Kết quả baseline**: Chatbot xử lý tốt câu hỏi nhạc lý và gợi ý ý tưởng, nhưng không thể tạo file.
+- **Kết quả Agent v1**: Agent gọi được tool tạo nhạc, nhưng đôi lúc tự bịa `Observation` hoặc không dừng đúng lúc.
+- **Kết quả Agent v2**: Guardrails giúp cải thiện độ tin cậy bằng cách bắt buộc chỉ backend được tạo `Observation` thật và ngăn path giả.
+- **Kết luận chính**: ReAct cần thiết cho bài toán tạo artifact vì LLM phải hành động thông qua tool, không chỉ mô tả câu trả lời.
 
-1. User sends a music request.
-2. Gemini generates `Thought` and optionally an `Action`.
-3. The backend parses the action.
-4. Python executes the selected music tool.
-5. Tool output is appended as `Observation`.
-6. The agent continues until it can produce `Final Answer`.
+---
 
-Important v2 guardrail: if an LLM response contains an `Action`, the backend always executes the action first and ignores any `Observation` or `Final Answer` written by the model in the same response.
+## 2. Kiến trúc hệ thống và công cụ
 
-### 2.2 Tool Definitions
+### 2.1 Vòng lặp ReAct
 
-| Tool Name | Input Format | Use Case |
+Hệ thống sử dụng vòng lặp ReAct có giới hạn `max_steps=5`:
+
+1. Người dùng gửi yêu cầu âm nhạc.
+2. Gemini sinh `Thought` và có thể sinh `Action`.
+3. Backend parse action.
+4. Python thực thi music tool tương ứng.
+5. Kết quả tool được đưa lại vào prompt dưới dạng `Observation`.
+6. Agent tiếp tục cho đến khi trả được `Final Answer`.
+
+Guardrail quan trọng của v2: nếu response của LLM có `Action`, backend luôn chạy action trước và bỏ qua mọi `Observation` hoặc `Final Answer` do model tự viết trong cùng response.
+
+### 2.2 Danh sách tool
+
+| Tên tool | Định dạng input | Mục đích |
 | :--- | :--- | :--- |
-| `create_midi` | key-value args / JSON-like args | Creates a symbolic `.mid` file from title, mood, key, tempo, and bars. |
-| `midi_to_wav` | key-value args / JSON-like args | Reads a generated `.mid` file and renders a playable `.wav`. |
-| `create_music_wav` | key-value args / JSON-like args | All-in-one wrapper: creates MIDI and WAV in one action to reduce loop count. |
+| `create_midi` | key-value args / JSON-like args | Tạo file `.mid` từ title, mood, key, tempo và bars. |
+| `midi_to_wav` | key-value args / JSON-like args | Đọc file `.mid` đã tạo và render thành file `.wav` có thể phát. |
+| `create_music_wav` | key-value args / JSON-like args | Wrapper all-in-one: tạo MIDI và WAV trong một action để giảm số vòng lặp. |
 
-### 2.3 LLM Provider
+### 2.3 Nhà cung cấp LLM
 
-- **Primary**: Gemini via REST API, configured by `.env`.
-- **Current default model**: `gemini-2.0-flash-lite`.
-- **Fallback model list**: `gemini-2.5-flash-lite`, `gemini-2.0-flash`, `gemini-flash-lite-latest`, `gemini-flash-latest`.
+- **Provider chính**: Gemini qua REST API, cấu hình bằng `.env`.
+- **Model mặc định hiện tại**: `gemini-2.0-flash-lite`.
+- **Danh sách fallback model**: `gemini-2.5-flash-lite`, `gemini-2.0-flash`, `gemini-flash-lite-latest`, `gemini-flash-latest`.
 
 ---
 
 ## 3. Telemetry Dashboard
 
-The system logs structured JSON events to `logs/YYYY-MM-DD.log`.
+Hệ thống ghi log JSON có cấu trúc vào `logs/YYYY-MM-DD.log`.
 
-Tracked events:
+Các event được ghi:
 
 - `CHATBOT_START`, `CHATBOT_RESPONSE`, `CHATBOT_END`
 - `AGENT_START`, `LLM_RESPONSE`, `TOOL_CALL`, `PARSER_ERROR`, `TOOL_ERROR`, `AGENT_END`
 - `LLM_METRIC`
 
-Tracked metrics:
+Các metric được theo dõi:
 
 - Prompt tokens
 - Completion tokens
 - Total tokens
-- Latency in ms
+- Latency tính bằng ms
 - Completion-to-prompt ratio
 - Tokens per second
 - Estimated cost
 
-Observed examples from test traces:
+Ví dụ quan sát từ các trace:
 
-| Metric | Example Value |
+| Metric | Giá trị ví dụ |
 | :--- | :--- |
-| Chatbot latency | ~6.25s for `tao nhac 3 bars, tempo 80` |
-| Agent successful drill trace | 2 LLM loops |
-| Agent LLM latency for drill trace | 6.09s + 5.48s |
-| Output artifact | `outputs/drill_track.wav` |
+| Chatbot latency | khoảng 6.25s với prompt `tao nhac 3 bars, tempo 80` |
+| Trace drill thành công của agent | 2 vòng LLM |
+| LLM latency của trace drill | 6.09s + 5.48s |
+| Artifact output | `outputs/drill_track.wav` |
 
 ---
 
-## 4. Root Cause Analysis - Failure Traces
+## 4. Phân tích lỗi và nguyên nhân gốc
 
-### Case Study: Hallucinated Observation and Fake File Path
+### Case Study: Agent tự bịa Observation và path giả
 
 - **Input**: `tao cho toi ban nhac drill 8bars tempo 120`
-- **Observed failure**:
+- **Trace lỗi**:
 
 ```text
 Action: create_music_wav(title='Drill Track', mood='energetic', key='Am', tempo=120, bars=8, waveform='sine')
@@ -93,69 +93,69 @@ Final Answer: /tmp/music_drill_track_energetic_Am_120_8.wav
 AGENT_END: steps=1, status=final_answer
 ```
 
-- **Root cause**:
-  - The model wrote its own `Observation` and `Final Answer`.
-  - The old loop checked `Final Answer` before executing `Action`.
-  - The backend stopped early, so no real file was created in `outputs/`.
+- **Nguyên nhân**:
+  - Model tự viết `Observation` và `Final Answer`.
+  - Loop cũ kiểm tra `Final Answer` trước khi chạy `Action`.
+  - Backend dừng sớm nên không có file thật trong `outputs/`.
 
-- **Fix**:
-  - Reordered the ReAct loop: parse and execute `Action` before accepting `Final Answer`.
-  - Removed hallucinated continuations from the prompt history with `_remove_hallucinated_tool_continuation`.
-  - Strengthened the system prompt:
-    - Do not write `Observation`.
-    - Do not invent file paths.
-    - Do not write `Final Answer` in the same response as `Action`.
-    - Only use paths returned by real tool observations.
+- **Cách sửa**:
+  - Đổi thứ tự xử lý ReAct: parse và chạy `Action` trước khi chấp nhận `Final Answer`.
+  - Loại bỏ phần continuation do model tự bịa bằng `_remove_hallucinated_tool_continuation`.
+  - Siết system prompt:
+    - Không tự viết `Observation`.
+    - Không bịa path file.
+    - Không viết `Final Answer` cùng lượt với `Action`.
+    - Chỉ dùng path được trả về từ tool thật.
 
 ---
 
-## 5. Ablation Studies & Experiments
+## 5. Thử nghiệm và ablation
 
-### Experiment 1: Prompt v1 vs Prompt v2
+### Thử nghiệm 1: Prompt v1 và Prompt v2
 
-| Version | Prompt / Logic | Failure Mode | Result |
+| Phiên bản | Prompt / Logic | Lỗi gặp phải | Kết quả |
 | :--- | :--- | :--- | :--- |
-| v1 | Basic ReAct format only | LLM sometimes wrote fake `Observation` and `/tmp/...wav` paths. | Agent stopped early and output file did not exist. |
-| v2 | Strict rules: one action per turn, no self-written Observation, no fake paths. | Model may still hallucinate, but backend ignores hallucinated continuation. | Tool runs and returns real `outputs/*.wav`. |
+| v1 | Chỉ có format ReAct cơ bản. | LLM đôi lúc tự viết `Observation` giả và path `/tmp/...wav`. | Agent dừng sớm, file output không tồn tại. |
+| v2 | Rule chặt: mỗi lượt một action, không tự viết Observation, không bịa path. | Model vẫn có thể hallucinate, nhưng backend bỏ qua phần đó. | Tool chạy thật và trả về `outputs/*.wav`. |
 
-### Experiment 2: Chatbot vs Agent
+### Thử nghiệm 2: Chatbot và Agent
 
-| Category | Test Case | Chatbot Baseline | ReAct Agent | Winner |
+| Nhóm tác vụ | Test case | Chatbot baseline | ReAct Agent | Bên thắng |
 | :--- | :--- | :--- | :--- | :--- |
-| Music theory | `key cua tone si thu la gi` | Direct answer, low overhead. | Also answers, but ReAct orchestration is unnecessary. | Chatbot |
-| Music theory | `Vong hop am C-G-Am-F gom nhung not nao?` | Direct text answer is enough. | Can answer, but tool use would be wasteful. | Chatbot |
-| Audio generation | `tao nhac 3 bars, tempo 80` | Text-only explanation, no file. | Can create a WAV artifact. | Agent |
-| Audio generation | `tao cho toi ban nhac drill 8bars tempo 120` | Long style description, no file. | Creates `outputs/drill_music.wav`. | Agent |
-| Audio generation | `Tao mot doan nhac calm key C dai 1 bar va xuat file wav` | Text-only baseline limitation. | Creates `outputs/calm_music.wav`. | Agent |
+| Nhạc lý | `key cua tone si thu la gi` | Trả lời trực tiếp, ít overhead. | Cũng trả lời được, nhưng ReAct không cần thiết. | Chatbot |
+| Nhạc lý | `Vong hop am C-G-Am-F gom nhung not nao?` | Trả lời text là đủ. | Có thể trả lời, nhưng dùng tool sẽ lãng phí. | Chatbot |
+| Tạo audio | `tao nhac 3 bars, tempo 80` | Chỉ giải thích bằng text, không tạo file. | Có thể tạo artifact WAV. | Agent |
+| Tạo audio | `tao cho toi ban nhac drill 8bars tempo 120` | Mô tả phong cách drill dài, không có `.wav`. | Tạo `outputs/drill_music.wav`. | Agent |
+| Tạo audio | `Tao mot doan nhac calm key C dai 1 bar va xuat file wav` | Bị giới hạn text-only. | Tạo `outputs/calm_music.wav`. | Agent |
 
 ---
 
-## 6. Production Readiness Review
+## 6. Đánh giá sẵn sàng production
 
-- **Security**: Validate tool arguments with JSON schema or Pydantic before execution.
-- **Guardrails**: Keep `max_steps=5`; reject absolute output paths and path traversal attempts.
-- **Scalability**: Move WAV rendering into a background job queue for longer audio tasks.
-- **Routing**: Use a smart router: music-theory questions go to chatbot; artifact-generation requests go to the agent.
-- **Observability**: Keep structured logs and metric events for debugging and grading.
+- **Bảo mật**: Validate tham số tool bằng JSON schema hoặc Pydantic trước khi thực thi.
+- **Guardrails**: Giữ `max_steps=5`; chặn absolute path và path traversal.
+- **Khả năng mở rộng**: Đưa quá trình render WAV vào background job queue cho tác vụ âm thanh dài.
+- **Routing**: Dùng smart router: câu hỏi nhạc lý đi qua chatbot, yêu cầu tạo file đi qua agent.
+- **Quan sát hệ thống**: Duy trì structured logs và metric events để debug và chấm điểm.
 
 ---
 
-## 7. Tool Design Evolution
+## 7. Quá trình tiến hóa thiết kế tool
 
-| Version | Tool Spec | Problem Found | Improvement |
+| Phiên bản | Tool spec | Vấn đề phát hiện | Cải tiến |
 | :--- | :--- | :--- | :--- |
-| v1 | `create_midi(title, mood, key, tempo, bars)` | Created `.mid`, but user wanted playable `.wav`. | Added a conversion tool. |
-| v2 | `create_midi(...)` + `midi_to_wav(midi_path, waveform)` | Two-step traces increased parser and loop risks. | Added stricter prompt rules and true backend observations. |
-| v3 | `create_music_wav(title, mood, key, tempo, bars, waveform)` | Most demo prompts did not need a visible two-step trace. | All-in-one wrapper reduced loop count and improved reliability. |
-| v4 | Normalized tool inputs | Gemini generated `mood='energetic'`, `mood='drill'`, `key='A minor'`, etc. | Tool now accepts more mood/key variants. |
+| v1 | `create_midi(title, mood, key, tempo, bars)` | Tạo được `.mid`, nhưng người dùng cần `.wav` phát được. | Thêm tool chuyển đổi. |
+| v2 | `create_midi(...)` + `midi_to_wav(midi_path, waveform)` | Trace hai bước làm tăng rủi ro parser và vòng lặp. | Siết prompt và bắt buộc dùng Observation thật từ backend. |
+| v3 | `create_music_wav(title, mood, key, tempo, bars, waveform)` | Phần lớn prompt demo không cần lộ rõ hai bước. | Wrapper all-in-one giảm số vòng và tăng độ ổn định. |
+| v4 | Chuẩn hóa input tool | Gemini sinh `mood='energetic'`, `mood='drill'`, `key='A minor'`, v.v. | Tool chấp nhận thêm biến thể mood/key. |
 
-Design lesson: a good tool spec must be easy for both humans and LLMs to call correctly.
+Bài học thiết kế: tool tốt không chỉ mạnh, mà còn phải dễ để LLM gọi đúng.
 
 ---
 
-## 8. Trace Quality Evidence
+## 8. Bằng chứng trace
 
-### Successful Trace: Calm WAV Generation
+### Trace thành công: tạo WAV calm
 
 - **Input**: `Tao mot doan nhac calm key C dai 1 bar va xuat file wav`
 
@@ -171,9 +171,9 @@ Final Answer: outputs\calm_music.wav
 AGENT_END: status=final_answer
 ```
 
-Result: `.wav` artifact was created in `outputs/` and could be played in the demo UI.
+Kết quả: artifact `.wav` được tạo trong `outputs/` và phát được trong UI demo.
 
-### Failed Trace: Fake Path
+### Trace thất bại: path giả
 
 - **Input**: `tao cho toi ban nhac drill 8bars tempo 120`
 
@@ -183,9 +183,9 @@ Observation: File created. /tmp/music_drill_track_energetic_Am_120_8.wav
 Final Answer: /tmp/music_drill_track_energetic_Am_120_8.wav
 ```
 
-Result: no matching file existed in `outputs/`.
+Kết quả: không có file tương ứng trong `outputs/`.
 
-### Fixed Trace: Same Failure Class After Guardrails
+### Trace sau khi sửa guardrails
 
 - **Input**: `create a drill music track 8 bars tempo 120 and export wav`
 
@@ -199,26 +199,26 @@ Final Answer: The WAV file has been successfully created at outputs\drill_track.
 AGENT_END: steps=2, status=final_answer
 ```
 
-Result: the backend ignored the fake model-written continuation and created the real file.
+Kết quả: backend bỏ qua phần model tự bịa và tạo file thật.
 
 ---
 
-## 9. Evaluation & Analysis Table
+## 9. Bảng đánh giá và phân tích
 
-| # | Test Case | Chatbot Result | Agent Result | Agent Loops | Observed Latency | Winner |
+| # | Test case | Kết quả chatbot | Kết quả agent | Số vòng agent | Latency quan sát | Bên thắng |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| 1 | `tao nhac 3 bars, tempo 80` | Text-only explanation; no artifact. | Creates WAV when routed to agent. | 1-2 | ~6.2s chatbot trace | Agent |
-| 2 | `tao cho toi ban nhac drill 8bars tempo 120` | Long drill style description; no `.wav`. | Created `outputs\drill_music.wav`. | 2 | ~17.0s agent trace | Agent |
-| 3 | `create a drill music track 8 bars tempo 120 and export wav` | Not used in final comparison. | Created `outputs\drill_track.wav`. | 2 | 6.09s + 5.48s LLM latency | Agent |
-| 4 | `Tao mot doan nhac calm key C dai 1 bar va xuat file wav` | Text-only baseline limitation. | Created `outputs\calm_music.wav`. | 2 | 5.65s + 5.00s LLM latency | Agent |
-| 5 | `key cua tone si thu la gi` | Direct music-theory answer. | Direct final answer, no tool. | 1 | ~17.7s agent trace | Chatbot |
-| 6 | `Vong hop am C-G-Am-F gom nhung not nao?` | Direct text answer is enough. | Possible but unnecessary overhead. | 1 | ReAct overhead expected | Chatbot |
+| 1 | `tao nhac 3 bars, tempo 80` | Chỉ giải thích text, không có artifact. | Tạo WAV khi route sang agent. | 1-2 | khoảng 6.2s ở trace chatbot | Agent |
+| 2 | `tao cho toi ban nhac drill 8bars tempo 120` | Mô tả drill dài, không có `.wav`. | Tạo `outputs\drill_music.wav`. | 2 | khoảng 17.0s trace agent | Agent |
+| 3 | `create a drill music track 8 bars tempo 120 and export wav` | Không dùng trong lần so sánh cuối. | Tạo `outputs\drill_track.wav`. | 2 | 6.09s + 5.48s LLM latency | Agent |
+| 4 | `Tao mot doan nhac calm key C dai 1 bar va xuat file wav` | Bị giới hạn text-only. | Tạo `outputs\calm_music.wav`. | 2 | 5.65s + 5.00s LLM latency | Agent |
+| 5 | `key cua tone si thu la gi` | Trả lời nhạc lý trực tiếp. | Trả lời trực tiếp, không cần tool. | 1 | khoảng 17.7s trace agent | Chatbot |
+| 6 | `Vong hop am C-G-Am-F gom nhung not nao?` | Trả lời text là đủ. | Có thể trả lời nhưng overhead không cần thiết. | 1 | dự kiến có overhead ReAct | Chatbot |
 
-Summary: Chatbot is best for direct knowledge tasks. ReAct Agent is best for tasks requiring real file creation.
+Tóm lại: Chatbot phù hợp với tác vụ kiến thức trực tiếp. ReAct Agent phù hợp với tác vụ cần tạo file thật.
 
 ---
 
-## 10. Flowchart & Group Insights
+## 10. Flowchart và insight nhóm
 
 ```mermaid
 flowchart TD
@@ -235,21 +235,21 @@ flowchart TD
     J -->|Yes| K[Final Answer with outputs/*.wav]
 ```
 
-Group insights:
+Insight của nhóm:
 
-- Chatbot is cheaper and simpler for conceptual music questions.
-- Agent is required when the desired output is a real artifact.
-- The trace is the truth; logs exposed the hallucinated `/tmp/...wav` bug immediately.
-- Tool descriptions are part of the product surface for the LLM.
-- Guardrails are core agent logic, not optional polish.
+- Chatbot rẻ và đơn giản hơn cho câu hỏi nhạc lý.
+- Agent cần thiết khi output mong muốn là artifact thật.
+- Trace là nguồn sự thật; log giúp phát hiện ngay lỗi path `/tmp/...wav`.
+- Tool description là một phần giao diện sản phẩm dành cho LLM.
+- Guardrails là logic cốt lõi của agent, không phải phần trang trí.
 
 ---
 
-## 11. Bonus Evidence: Extra Monitoring
+## 11. Bonus: Extra Monitoring
 
-The telemetry layer now records `LLM_METRIC` events for both chatbot and agent calls.
+Telemetry hiện ghi event `LLM_METRIC` cho cả chatbot và agent.
 
-Metric fields:
+Các trường metric:
 
 - `prompt_tokens`
 - `completion_tokens`
@@ -259,7 +259,7 @@ Metric fields:
 - `tokens_per_second`
 - `cost_estimate`
 
-Example event shape:
+Ví dụ event:
 
 ```json
 {
@@ -278,4 +278,4 @@ Example event shape:
 }
 ```
 
-This supports the Extra Monitoring bonus and makes the evaluation table reproducible from `logs/YYYY-MM-DD.log`.
+Phần này hỗ trợ bonus Extra Monitoring và giúp tái tạo bảng đánh giá từ `logs/YYYY-MM-DD.log`.

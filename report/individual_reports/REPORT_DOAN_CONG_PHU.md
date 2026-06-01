@@ -1,16 +1,16 @@
-# Individual Report: Lab 3 - Chatbot vs ReAct Agent
+# Báo cáo Cá nhân: Lab 3 - Chatbot vs ReAct Agent
 
-- **Student Name**: [Đoàn Công Phú]
-- **Student ID**: [2A202600929]
-- **Date**: 2026-06-01
+- **Họ và tên**: Đoàn Công Phú
+- **Mã sinh viên**: 2A202600929
+- **Ngày**: 2026-06-01
 
 ---
 
-## I. Technical Contribution (15 Points)
+## I. Đóng góp kỹ thuật (15 điểm)
 
-Trong lab này, đóng góp chính của tôi là xây dựng một hệ thống **AI Music Agent** có khả năng nhận yêu cầu âm nhạc từ người dùng, dùng vòng lặp ReAct để gọi tool, tạo file MIDI, render thành WAV và trả về đường dẫn file thật trong thư mục `outputs/`. Tôi cũng triển khai chatbot baseline để so sánh giới hạn giữa LLM trả lời văn bản thuần và agent có khả năng hành động.
+Trong lab này, đóng góp chính của tôi là xây dựng hệ thống **AI Music Agent** có khả năng nhận yêu cầu âm nhạc từ người dùng, dùng vòng lặp ReAct để gọi tool, tạo file MIDI, render thành WAV và trả về đường dẫn file thật trong thư mục `outputs/`. Tôi cũng triển khai chatbot baseline để so sánh giới hạn giữa LLM trả lời văn bản thuần và agent có khả năng hành động.
 
-- **Modules Implemented**:
+- **Các module đã triển khai**:
   - `src/agent/agent.py`: Hoàn thiện ReAct loop, parser `Action`, tool execution, telemetry và guardrails chống hallucinated `Observation`/`Final Answer`.
   - `src/tools/music_tools.py`: Tạo bộ tool âm nhạc gồm `create_midi`, `midi_to_wav`, `create_music_wav`.
   - `src/chatbot/chatbot.py`: Xây dựng baseline chatbot chỉ trả lời text, không có quyền gọi tool.
@@ -18,9 +18,9 @@ Trong lab này, đóng góp chính của tôi là xây dựng một hệ thống
   - `src/core/env.py` và `src/core/gemini_setup.py`: Load cấu hình `.env` và tạo Gemini provider dùng chung cho CLI/server.
   - `src/telemetry/metrics.py`: Bổ sung `LLM_METRIC` với latency, token usage, token ratio, tokens/second và cost estimate.
   - `run_demo_server.py` và `demo.html`: Demo web UI gồm hai panel: baseline chatbot và ReAct Music Agent, có audio player cho file `.wav`.
-  - `tests/test_music_agent.py`: Test baseline chatbot, test agent tạo WAV thật, và test lỗi agent bị hallucinate path.
+  - `tests/test_music_agent.py`: Test baseline chatbot, test agent tạo WAV thật và test lỗi agent bị hallucinate path.
 
-- **Code Highlights**:
+- **Code highlights**:
   - ReAct loop ưu tiên chạy tool khi thấy `Action`, thay vì dừng sớm theo `Final Answer` do model tự bịa:
 
 ```python
@@ -51,19 +51,21 @@ payload = {
 }
 ```
 
-- **Documentation**:
-  - Agent nhận yêu cầu người dùng, sinh `Thought` để quyết định tool, xuất `Action`, backend chạy Python tool thật, sau đó đưa kết quả vào `Observation`. Khi `Observation` chứa file `.wav`, agent mới được trả `Final Answer`.
+- **Giải thích tương tác với ReAct loop**:
+  - Agent nhận yêu cầu người dùng, sinh `Thought` để quyết định tool, xuất `Action`, backend chạy Python tool thật, sau đó đưa kết quả vào `Observation`.
+  - Khi `Observation` chứa file `.wav`, agent mới được trả `Final Answer`.
   - Chatbot baseline dùng cùng Gemini model nhưng không có tool, vì vậy chỉ có thể mô tả ý tưởng âm nhạc bằng text. Điều này tạo đối chứng rõ ràng cho bài toán artifact generation.
   - Cả chatbot và agent đều ghi metric `LLM_METRIC` sau mỗi lần gọi LLM, giúp phân tích chi phí, độ trễ và hiệu quả token trong báo cáo.
 
 ---
 
-## II. Debugging Case Study (10 Points)
+## II. Case Study Debugging (10 điểm)
 
-- **Problem Description**:
-  - Agent từng báo đã tạo file nhưng UI không tìm thấy file trong `outputs/`. Khi kiểm tra log, agent trả về đường dẫn giả dạng `/tmp/...wav`, không phải file thật do tool tạo.
+- **Mô tả vấn đề**:
+  - Agent từng báo đã tạo file nhưng UI không tìm thấy file trong `outputs/`.
+  - Khi kiểm tra log, agent trả về đường dẫn giả dạng `/tmp/...wav`, không phải file thật do tool tạo.
 
-- **Log Source**:
+- **Log source**:
   - Log trong `logs/2026-06-01.log` cho input:
 
 ```text
@@ -75,12 +77,13 @@ Final Answer: /tmp/music_drill_track_energetic_Am_120_8.wav
 AGENT_END: {"steps": 1, "status": "final_answer"}
 ```
 
-- **Diagnosis**:
+- **Chẩn đoán**:
   - Đây là lỗi kết hợp giữa prompt và parser.
   - Prompt ban đầu chưa đủ chặt nên Gemini tự viết luôn `Observation` và `Final Answer` sau `Action`.
-  - Code cũ kiểm tra `Final Answer` trước `Action`, nên agent dừng ngay ở step 1, không gọi tool thật. Kết quả là không có file trong `outputs/`, chỉ có path hallucinated `/tmp/...wav`.
+  - Code cũ kiểm tra `Final Answer` trước `Action`, nên agent dừng ngay ở step 1, không gọi tool thật.
+  - Kết quả là không có file trong `outputs/`, chỉ có path hallucinated `/tmp/...wav`.
 
-- **Solution**:
+- **Giải pháp**:
   - Sửa thứ tự xử lý trong `src/agent/agent.py`: nếu response có `Action`, bắt buộc chạy tool trước, bỏ qua `Final Answer` xuất hiện cùng lượt.
   - Thêm hàm loại bỏ phần `Observation`/`Final Answer` do model tự viết trước khi append observation thật:
 
@@ -100,7 +103,7 @@ def _remove_hallucinated_tool_continuation(self, text: str) -> str:
 
 ---
 
-## III. Personal Insights: Chatbot vs ReAct (10 Points)
+## III. Góc nhìn cá nhân: Chatbot vs ReAct (10 điểm)
 
 1. **Reasoning**:
    - `Thought` giúp agent biến yêu cầu tự nhiên như "tạo bản drill 8 bars tempo 120" thành các tham số cụ thể: `title`, `mood`, `key`, `tempo`, `bars`.
@@ -116,7 +119,7 @@ def _remove_hallucinated_tool_continuation(self, text: str) -> str:
 
 ---
 
-## IV. Future Improvements (5 Points)
+## IV. Cải tiến trong tương lai (5 điểm)
 
 - **Scalability**:
   - Tách quá trình render audio thành background job queue để UI không phải chờ request HTTP lâu.
@@ -135,9 +138,9 @@ def _remove_hallucinated_tool_continuation(self, text: str) -> str:
 
 ---
 
-## Submission Notes
+## Ghi chú nộp bài
 
-- Main demo: `python run_demo_server.py --port 8000`
+- Demo chính: `python run_demo_server.py --port 8000`
 - Web UI: `http://127.0.0.1:8000`
-- Representative successful output: `outputs/drill_music.wav`
-- Test command used: `python -m pytest tests/test_music_agent.py`
+- Output thành công tiêu biểu: `outputs/drill_music.wav`
+- Lệnh test đã dùng: `python -m pytest tests/test_music_agent.py`
