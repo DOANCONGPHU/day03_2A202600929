@@ -1,74 +1,278 @@
-import os
+import ast
+import json
 import re
-from typing import List, Dict, Any, Optional
+from typing import Callable, List, Dict, Any, Optional, Tuple
 from src.core.llm_provider import LLMProvider
 from src.telemetry.logger import logger
 
+MUSIC_AGENT_PROMPT = """
+Ban la AI Music Agent. Nhiem vu cua ban la tao ra file am thanh (.wav) cho nguoi dung.
+Ban phai tu duy theo vong lap Thought - Action - Observation.
+Thay vi in code cho nguoi dung, hay truc tiep su dung cac cong cu duoc cap de tao file .mid,
+sau do chuyen no thanh .wav va tra ve duong dan file cuoi cung.
+"""
+
+
 class ReActAgent:
     """
-    SKELETON: A ReAct-style Agent that follows the Thought-Action-Observation loop.
-    Students should implement the core loop logic and tool execution.
+    A ReAct-style Agent that follows the Thought-Action-Observation loop.
     """
     
-    def __init__(self, llm: LLMProvider, tools: List[Dict[str, Any]], max_steps: int = 5):
+    def __init__(
+        self,
+        llm: LLMProvider,
+        tools: List[Dict[str, Any]],
+        max_steps: int = 5,
+        role_prompt: Optional[str] = None,
+    ):
         self.llm = llm
         self.tools = tools
         self.max_steps = max_steps
+        self.role_prompt = role_prompt
         self.history = []
 
     def get_system_prompt(self) -> str:
-        """
-        TODO: Implement the system prompt that instructs the agent to follow ReAct.
-        Should include:
-        1.  Available tools and their descriptions.
-        2.  Format instructions: Thought, Action, Observation.
-        """
-        tool_descriptions = "\n".join([f"- {t['name']}: {t['description']}" for t in self.tools])
+        """Build a prompt that teaches the model the available tools and loop format."""
+        tool_descriptions = "\n".join(
+            [
+                f"- {tool['name']}: {tool.get('description', 'No description provided.')}"
+                for tool in self.tools
+            ]
+        )
+        role_prompt = self.role_prompt or "You are an intelligent assistant that solves tasks with ReAct reasoning."
         return f"""
-        You are an intelligent assistant. You have access to the following tools:
-        {tool_descriptions}
+        {role_prompt.strip()}
 
-        Use the following format:
-        Thought: your line of reasoning.
-        Action: tool_name(arguments)
-        Observation: result of the tool call.
-        ... (repeat Thought/Action/Observation if needed)
+        You have access to these tools:
+        {tool_descriptions or "- No tools available."}
+
+Rules:
+- Use a tool only when it is needed to answer accurately.
+- For music requests, create a .mid file first, then convert it to .wav.
+- Do not print source code as the answer.
+- Do not write Observation yourself. Observation is produced only by the program after a real tool call.
+- Do not invent file paths. Only use file paths returned in Observation.
+- If you write an Action, do not write Final Answer in the same response.
+- The final answer must include the final .wav path.
+- When using a tool, write exactly one Action line in this format:
+  Action: tool_name(arguments)
+        - Arguments may be a plain string, a JSON object, a JSON array, or key=value pairs.
+        - After an Observation is provided, continue reasoning from that observation.
+        - When you know the answer, stop using tools and write:
         Final Answer: your final response.
         """
 
     def run(self, user_input: str) -> str:
         """
-        TODO: Implement the ReAct loop logic.
+        Implement the ReAct loop logic.
         1. Generate Thought + Action.
         2. Parse Action and execute Tool.
         3. Append Observation to prompt and repeat until Final Answer.
         """
         logger.log_event("AGENT_START", {"input": user_input, "model": self.llm.model_name})
-        
-        current_prompt = user_input
-        steps = 0
 
-        while steps < self.max_steps:
-            # TODO: Generate LLM response
-            # result = self.llm.generate(current_prompt, system_prompt=self.get_system_prompt())
-            
-            # TODO: Parse Thought/Action from result
-            
-            # TODO: If Action found -> Call tool -> Append Observation
-            
-            # TODO: If Final Answer found -> Break loop
-            
-            steps += 1
-            
-        logger.log_event("AGENT_END", {"steps": steps})
-        return "Not implemented. Fill in the TODOs!"
+        self.history = []
+        current_prompt = f"Question: {user_input}\n"
+        final_answer = ""
+
+        for step in range(1, self.max_steps + 1):
+            result = self.llm.generate(
+                current_prompt,
+                system_prompt=self.get_system_prompt(),
+            )
+            content = result.get("content", "").strip()
+            self.history.append({"step": step, "llm_response": content})
+
+            logger.log_event(
+                "LLM_RESPONSE",
+                {
+                    "step": step,
+                    "content": content,
+                    "usage": result.get("usage", {}),
+                    "latency_ms": result.get("latency_ms"),
+                    "provider": result.get("provider"),
+                },
+            )
+
+            action = self._parse_action(content)
+            if action is not None:
+                tool_name, args = action
+                observation = self._execute_tool(tool_name, args)
+                logger.log_event(
+                    "TOOL_CALL",
+                    {
+                        "step": step,
+                        "tool": tool_name,
+                        "args": args,
+                        "observation": observation,
+                    },
+                )
+            else:
+                final_answer = self._extract_final_answer(content)
+                if final_answer:
+                    logger.log_event("AGENT_END", {"steps": step, "status": "final_answer"})
+                    return final_answer
+
+                observation = (
+                    "Parser error: no valid Action line found. Use "
+                    "'Action: tool_name(arguments)' or provide 'Final Answer: ...'."
+                )
+                logger.log_event(
+                    "PARSER_ERROR",
+                    {"step": step, "content": content, "observation": observation},
+                )
+
+            self.history[-1]["observation"] = observation
+            current_prompt = (
+                f"{current_prompt}{self._remove_hallucinated_tool_continuation(content)}\n"
+                f"Observation: {observation}\n"
+            )
+
+        logger.log_event(
+            "AGENT_END",
+            {"steps": self.max_steps, "status": "max_steps_exceeded"},
+        )
+        return (
+            "I could not produce a final answer within "
+            f"{self.max_steps} steps. Last observation: "
+            f"{self.history[-1].get('observation', 'none') if self.history else 'none'}"
+        )
 
     def _execute_tool(self, tool_name: str, args: str) -> str:
         """
         Helper method to execute tools by name.
         """
         for tool in self.tools:
-            if tool['name'] == tool_name:
-                # TODO: Implement dynamic function calling or simple if/else
-                return f"Result of {tool_name}"
+            if tool["name"] == tool_name:
+                func = self._get_tool_callable(tool)
+                if func is None:
+                    return f"Tool {tool_name} has no callable function configured."
+
+                try:
+                    parsed_args = self._parse_tool_args(args)
+                    if isinstance(parsed_args, dict):
+                        result = func(**parsed_args)
+                    elif isinstance(parsed_args, list):
+                        result = func(*parsed_args)
+                    elif parsed_args in ("", None):
+                        result = func()
+                    else:
+                        result = func(parsed_args)
+                    return str(result)
+                except Exception as exc:
+                    logger.log_event(
+                        "TOOL_ERROR",
+                        {"tool": tool_name, "args": args, "error": str(exc)},
+                    )
+                    return f"Tool {tool_name} failed: {exc}"
         return f"Tool {tool_name} not found."
+
+    def _parse_action(self, text: str) -> Optional[Tuple[str, str]]:
+        """Extract an Action line from model output."""
+        cleaned = self._strip_code_fences(text)
+        pattern = r"Action\s*:\s*([A-Za-z_][A-Za-z0-9_]*)\s*\((.*?)\)\s*(?:\n|$)"
+        match = re.search(pattern, cleaned, flags=re.DOTALL)
+        if not match:
+            return None
+        return match.group(1), match.group(2).strip()
+
+    def _extract_final_answer(self, text: str) -> Optional[str]:
+        match = re.search(r"Final Answer\s*:\s*(.*)", text, flags=re.DOTALL | re.IGNORECASE)
+        if not match:
+            return None
+        return match.group(1).strip()
+
+    def _get_tool_callable(self, tool: Dict[str, Any]) -> Optional[Callable[..., Any]]:
+        for key in ("func", "function", "callable", "run"):
+            candidate = tool.get(key)
+            if callable(candidate):
+                return candidate
+        return None
+
+    def _parse_tool_args(self, args: str) -> Any:
+        args = self._strip_code_fences(args).strip()
+        if not args:
+            return ""
+
+        if self._looks_like_json(args):
+            return json.loads(args)
+
+        try:
+            return ast.literal_eval(args)
+        except (SyntaxError, ValueError):
+            pass
+
+        keyword_args = self._parse_keyword_args(args)
+        if keyword_args is not None:
+            return keyword_args
+
+        return args.strip("\"'")
+
+    def _parse_keyword_args(self, args: str) -> Optional[Dict[str, Any]]:
+        if "=" not in args:
+            return None
+
+        parsed = {}
+        for part in self._split_args(args):
+            if "=" not in part:
+                return None
+            key, value = part.split("=", 1)
+            key = key.strip()
+            if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", key):
+                return None
+            parsed[key] = self._parse_single_value(value.strip())
+        return parsed
+
+    def _parse_single_value(self, value: str) -> Any:
+        if self._looks_like_json(value):
+            return json.loads(value)
+        try:
+            return ast.literal_eval(value)
+        except (SyntaxError, ValueError):
+            return value.strip("\"'")
+
+    def _split_args(self, args: str) -> List[str]:
+        parts = []
+        current = []
+        depth = 0
+        quote = None
+
+        for char in args:
+            if quote:
+                current.append(char)
+                if char == quote:
+                    quote = None
+                continue
+
+            if char in ("'", '"'):
+                quote = char
+            elif char in "([{":
+                depth += 1
+            elif char in ")]}":
+                depth -= 1
+            elif char == "," and depth == 0:
+                parts.append("".join(current).strip())
+                current = []
+                continue
+
+            current.append(char)
+
+        if current:
+            parts.append("".join(current).strip())
+        return parts
+
+    def _looks_like_json(self, value: str) -> bool:
+        return (value.startswith("{") and value.endswith("}")) or (
+            value.startswith("[") and value.endswith("]")
+        )
+
+    def _strip_code_fences(self, text: str) -> str:
+        return re.sub(r"^```(?:\w+)?\s*|\s*```$", "", text.strip())
+
+    def _remove_hallucinated_tool_continuation(self, text: str) -> str:
+        return re.split(
+            r"\n\s*(Observation|Final Answer)\s*:",
+            text,
+            maxsplit=1,
+            flags=re.IGNORECASE,
+        )[0].strip()
